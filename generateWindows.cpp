@@ -13,49 +13,49 @@ using namespace std;
 // clang++ -std=c++11 -stdlib=libc++ generateWindows.cpp
 // ./a.out
 
-
-const int N_BASES=2*1e5; //max # bases per tile  //CONSTANT STILL NEEDS TO BE FIXED
+const int N_BASES=5*1e3; //max # bases per tile  //CONSTANT STILL NEEDS TO BE FIXED
 const int N_TILES=1*1e3; //max # tiles
-const int N_CHROMOSOMES=23;
 const string convert_chr[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "X"};
 
 
 struct Base{
   stack<string> sRead, eRead; //start read & end read
 };
-struct Chr{
-  Chr(): bases(N_TILES, vector<Base>(N_BASES)){} //stores 'events' when a read starts/ends
-  vector<vector<Base> > bases; //[tile#][base(1-indexed)]
-};
 struct Tile{
-  int chr, sTile, eTile;
+  int chr, start, end;
 };  
 
 
 ofstream fOut;
 ifstream fSelector, fRows;
 
-Chr sequence[N_CHROMOSOMES]; //0-indexed
-int tiles[N_TILES], windowLength;
+Base bases[N_TILES][N_BASES];
+Tile tiles[N_TILES];
+int windowLength;
 
 
-void initializeSequence(int tilePos){
-  int start, chr, length;
-    string C, L, read;
+void processSequence(int tileNum){
+  while(!fRows.eof()){
+    int start, chr, length; string C, L, read;
     fRows >> C >> start >> L >> read;
     L.pop_back();
     length = stoi(L);
+    chr = C.back()=='X' ? 22 : ((int)(C.back()-'0'))-1;
 
-    if(length<windowLength){
+    if(chr != tiles[tileNum].chr || start>tiles[tileNum].end) //this means first read of next tile was just processed
+      break;
+    int tilePosition = start-tiles[tileNum].start;
+    if(tilePosition<0 || start+length-1>tiles[tileNum].end) //read not completely in tile
+      continue;
+    if(windowLength>length){
       cout << "-----Warning: Window length is greater than the length of a read --window defaulted to length of read (" << L << ")" << endl;
       windowLength = length;
     }
-    assert(start+length<MAX_POSITION && "Total number of bases in reads exceeds N_BASES, change the constant in code to allocate more memory.");
 
     string mutations="";
     for(int i=0; i<read.size(); i++){
       if(read[i]=='=') 
-        continue;
+        continue;  
       mutations += "chr";
       mutations += to_string(chr);
       mutations += "-";
@@ -65,48 +65,56 @@ void initializeSequence(int tilePos){
       mutations += " ";
     }
 
-    sequence[chr].bases[start].sRead.push(mutations);
-    sequence[chr].bases[start+length].eRead.push(mutations);
-    sequence[chr].maxPosition = start+length;
-}
-
-
-void initializeTiles(){
-  int tilePos=0, prefixSum=0;
-  while(!fSelector.eof()){
-    int selectorChr, sTile, eTile; string selectorChrStr;
-    cin >> selectorChrStr >> sTile >> eTile;
-    selectorChr = selectorChrStr.back()=='X' ? 22 : ((int)(selectorChrStr.back()-'0'))-1;
-    tiles[tilePos] = {chr, sTile, eTile};
-
-    initializeSequence(tilePos);
-    tilePos++;
+    bases[tileNum][tilePosition].sRead.push(mutations);
+    bases[tileNum][tilePosition+length].eRead.push(mutations);
   }
 }
 
 
-void generateWindows(){
-  map<string, int> mutations; //<mutation_set, count>
-  for(int i=0; i<NUM_CHROMOSOMES; i++){
-    for(int j=sequence[i].minPosition; j+windowLength<=sequence[i].maxPosition; j++){ //slide window
+int tileNum=0;
+void processTiles(){
+  int lastChr=-1;
+  while(!fSelector.eof()){
+    int chr, sTile, eTile; string chrStr;
+    cin >> chrStr >> sTile >> eTile;
+    chr = chrStr.back()=='X' ? 22 : ((int)(chrStr.back()-'0'))-1;
+    tiles[tileNum] = {chr, sTile, eTile};
+
+    if(lastChr != chr){
+      lastChr = chr;
+      cout << "----Processing chr" << chr << "..." << endl;
+    }
+
+    assert(eTile-sTile<N_BASES && "Number of base pairs in a single tile exceeds N_BASES, change the constant in the code to allocate more memory.");
+    processSequence(tileNum);
+    tileNum++;
+  }
+}
+
+
+void createWindows(){
+  map<string, int> mutations; //<mutations, count>
+  for(int i=0; i<tileNum; i++){
+    Tile curTile = tiles[tileNum];
+    for(int j=0; j<=curTile.end-curTile.start-windowLength+1; j++){
       //add read-start events to current map of mutations
       pair<map<string, int>::iterator, bool> ret;
-      while(!sequence[i].bases[j].sRead.empty()){
-        ret = mutations.emplace(sequence[i].bases[j].sRead.top(), 1);
-        sequence[i].bases[j].sRead.pop();
+      while(!bases[i][j].sRead.empty()){
+        ret = mutations.emplace(bases[i][j].sRead.top(), 1);
+        bases[i][j].sRead.pop();
         if(ret.second == false) //same set of mutations already occured, increases count
           (ret.first->second)++;
       }
 
-  //  f << "chr" << convert_chr[i] << ":" << j << "-" << j+windowLength-1 << " " << depth << endl;
+      //f << "chr" << convert_chr[i] << ":" << j << "-" << j+windowLength-1 << " " << depth << endl;
       for(map<string, int>::iterator it=mutations.begin(); it != mutations.end(); ++it)
-        fOut << it->second << " " << it->first << "chr" << convert_chr[i] << ":" << j << "-" << j+windowLength-1 << endl;
+        fOut << it->second << " " << it->first << "chr" << convert_chr[curTile.chr] << ":" << j+curTile.start << "-" << j+curTile.start+windowLength-1 << endl;
 
       //delete read-end events from current map of mutations
       map<string, int>::iterator it;
-      while(!sequence[i].bases[j+windowLength].eRead.empty()){
-        it = mutations.find(sequence[i].bases[j].eRead.top());
-        sequence[i].bases[j].eRead.pop();
+      while(!bases[i][j+windowLength].eRead.empty()){
+        it = mutations.find(bases[i][j].eRead.top());
+        bases[i][j].eRead.pop();
         if(it->second > 1) //more than one occurence of the set of mutations, just decrease count instead of erasing
           (it->second)--;
         else
@@ -119,22 +127,24 @@ void generateWindows(){
 
 int main(){ // <mutatedrows> <selector> <windowlength> <output>
   string rows, selector, output;
-  cin >> fileName >> selector >> windowLength >> output;
+  cin >> rows >> selector >> windowLength >> output;
 
   fOut.open(output);  
   fSelector.open(selector);
-  fRows.open(fileName);
+  fRows.open(rows);
 
   clock_t t;
   t = clock();
   cout << "------Generating..." << endl;
 
-  initializeTiles();
-  generateWindows();
+  processTiles();
+  createWindows();
 
   cout << "----Done" << endl;
   cout << "------Executed in " << ((float)(clock()-t))/CLOCKS_PER_SEC << " seconds." << endl;
 
-  f.close();
+  fOut.close();
+  fSelector.close();
+  fRows.close();
   return 0;
 }
