@@ -1,14 +1,15 @@
 #include <cstdio>
 #include <iostream>
 #include <fstream>
-#include <string>
 #include <sstream>
-#include <vector>
+#include <string>
 #include <assert.h>
 #include <time.h>
 #include <stack>
-#include <unordered_map>
+#include <map>
+#include <vector>
 using namespace std;
+// git add generateWindows.cpp filterMutatedRows.sh clonal_tumor_wrapper.sh
 // clang++ -std=c++11 -stdlib=libc++ generateWindows.cpp
 // ./a.out
 
@@ -69,14 +70,33 @@ void initializeSequence(){
 }
 
 
-void generateDepth(){
+void generateWindows(){
+  map<string, int> mutations; //<mutation_set, count>
   for(int i=0; i<NUM_CHROMOSOMES; i++){
-    int depth=0;
     for(int j=sequence[i].minPosition; j+windowLength<=sequence[i].maxPosition; j++){ //slide window
-      depth += sequence[i].bases[j].sRead.size();
-      if(depth > 0)
-        f << "chr" << convert_chr[i] << ":" << j << "-" << j+windowLength-1 << " " << depth << endl;
-      depth -= sequence[i].bases[j+windowLength].eRead.size();
+      //add read-start events to current map of mutations
+      pair<map<string, int>::iterator, bool> ret;
+      while(!sequence[i].bases[j].sRead.empty()){
+        ret = mutations.emplace(sequence[i].bases[j].sRead.top(), 1);
+        sequence[i].bases[j].sRead.pop();
+        if(ret.second == false) //same set of mutations already occured, increases count
+          (ret.first->second)++;
+      }
+
+  //  f << "chr" << convert_chr[i] << ":" << j << "-" << j+windowLength-1 << " " << depth << endl;
+      for(map<string, int>::iterator it=mutations.begin(); it != mutations.end(); ++it)
+        f << it->second << " " << it->first << "chr" << convert_chr[i] << ":" << j << "-" << j+windowLength-1 << endl;
+
+      //delete read-end events from current map of mutations
+      map<string, int>::iterator it;
+      while(!sequence[i].bases[j+windowLength].eRead.empty()){
+        it = mutations.find(sequence[i].bases[j].eRead.top());
+        sequence[i].bases[j].eRead.pop();
+        if(it->second > 1) //more than one occurence of the set of mutations, just decrease count instead of erasing
+          (it->second)--;
+        else
+          mutations.erase(it);
+      }
     }
   }
 }
@@ -94,7 +114,7 @@ int main(){ // <mutatedrows> <windowlength>
   cout << "------Generating..." << endl;
 
   initializeSequence();
-  generateDepth();
+  generateWindows();
 
   cout << "----Done" << endl;
   cout << "------Executed in " << ((float)(clock()-t))/CLOCKS_PER_SEC << " seconds." << endl;
