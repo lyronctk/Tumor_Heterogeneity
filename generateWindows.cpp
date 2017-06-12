@@ -13,16 +13,16 @@ using namespace std;
 // clang++ -std=c++11 -stdlib=libc++ generateWindows.cpp
 // ./a.out
 
-const int N_BASES=5*1e3; //max # bases per tile  //CONSTANT STILL NEEDS TO BE FIXED
-const int N_TILES=1*1e3; //max # tiles
-const string convert_chr[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "X"};
+const int N_BASES=3*1e3; //max # bases per tile  
+const int N_TILES=3*1e3; //max # tiles
 
 
 struct Base{
   stack<string> sRead, eRead; //start read & end read
 };
 struct Tile{
-  int chr, start, end;
+  string chr;
+  int start, end;
 };  
 
 
@@ -36,11 +36,11 @@ int windowLength;
 
 void processSequence(int tileNum){
   while(!fRows.eof()){
-    int start, chr, length; string C, L, read;
-    fRows >> C >> start >> L >> read;
+    int start, length; string chr, L, read;
+    fRows >> chr >> start >> L >> read;
+    if(read == "") continue; //blank line
     L.pop_back();
     length = stoi(L);
-    chr = C.back()=='X' ? 22 : ((int)(C.back()-'0'))-1;
 
     if(chr != tiles[tileNum].chr || start>tiles[tileNum].end) //this means first read of next tile was just processed
       break;
@@ -56,8 +56,7 @@ void processSequence(int tileNum){
     for(int i=0; i<read.size(); i++){
       if(read[i]=='=') 
         continue;  
-      mutations += "chr";
-      mutations += to_string(chr);
+      mutations += chr;
       mutations += "-";
       mutations += to_string(start+i);
       mutations += "-";
@@ -73,18 +72,19 @@ void processSequence(int tileNum){
 
 int tileNum=0;
 void processTiles(){
-  int lastChr=-1;
+  string lastChr="";
   while(!fSelector.eof()){
-    int chr, sTile, eTile; string chrStr;
-    cin >> chrStr >> sTile >> eTile;
-    chr = chrStr.back()=='X' ? 22 : ((int)(chrStr.back()-'0'))-1;
+    int sTile, eTile; string chr;
+    fSelector >> chr >> sTile >> eTile;
+    if(chr == "") continue; //blank line
     tiles[tileNum] = {chr, sTile, eTile};
 
     if(lastChr != chr){
       lastChr = chr;
-      cout << "----Processing chr" << chr << "..." << endl;
+      cout << "----Processing " << chr << "..." << endl;
     }
 
+    assert(tileNum<N_TILES-5 && "Number of tiles exceeds N_TILES, change the constant in the code to allocate more memory.");
     assert(eTile-sTile<N_BASES && "Number of base pairs in a single tile exceeds N_BASES, change the constant in the code to allocate more memory.");
     processSequence(tileNum);
     tileNum++;
@@ -94,8 +94,13 @@ void processTiles(){
 
 void createWindows(){
   map<string, int> mutations; //<mutations, count>
+  string lastChr = "";
   for(int i=0; i<tileNum; i++){
-    Tile curTile = tiles[tileNum];
+    Tile curTile = tiles[i];
+    if(curTile.chr != lastChr){
+      lastChr = curTile.chr;
+      cout << "----Generating windows in " << lastChr << "..." << endl;
+    }
     for(int j=0; j<=curTile.end-curTile.start-windowLength+1; j++){
       //add read-start events to current map of mutations
       pair<map<string, int>::iterator, bool> ret;
@@ -106,15 +111,15 @@ void createWindows(){
           (ret.first->second)++;
       }
 
-      //f << "chr" << convert_chr[i] << ":" << j << "-" << j+windowLength-1 << " " << depth << endl;
+      //fOut << chr << ":" << j << "-" << j+windowLength-1 << " " << depth << endl;
       for(map<string, int>::iterator it=mutations.begin(); it != mutations.end(); ++it)
-        fOut << it->second << " " << it->first << "chr" << convert_chr[curTile.chr] << ":" << j+curTile.start << "-" << j+curTile.start+windowLength-1 << endl;
+        fOut << it->second << " " << it->first << curTile.chr << ":" << j+curTile.start << "-" << j+curTile.start+windowLength-1 << endl;
 
       //delete read-end events from current map of mutations
       map<string, int>::iterator it;
       while(!bases[i][j+windowLength].eRead.empty()){
-        it = mutations.find(bases[i][j].eRead.top());
-        bases[i][j].eRead.pop();
+        it = mutations.find(bases[i][j+windowLength].eRead.top());
+        bases[i][j+windowLength].eRead.pop();
         if(it->second > 1) //more than one occurence of the set of mutations, just decrease count instead of erasing
           (it->second)--;
         else
@@ -138,6 +143,7 @@ int main(){ // <mutatedrows> <selector> <windowlength> <output>
   cout << "------Generating..." << endl;
 
   processTiles();
+  cout << " *" << endl;
   createWindows();
 
   cout << "----Done" << endl;

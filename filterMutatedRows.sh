@@ -41,6 +41,5 @@
 # dummy=$(head -c $length < /dev/zero | tr '\0' '\141' | sed -e 's,a,=,g')
 # awk -v dummy="$dummy" '$4!=dummy' $file_name.refremoved.txt > $file_name.mutatedrows.txt 
 
-file_name='DLBCL021-Tumor'
 clang++ -std=c++11 -stdlib=libc++ generateWindows.cpp
-echo "$file_name.mutatedrows.txt 50" | ./a.out
+echo "DLBCL021-Tumor.mutatedrows.txt selector.bed 50 windows.txt" | ./a.out
