@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <time.h>
 #include <stack>
+#include <unordered_map>
 using namespace std;
 // clang++ -std=c++11 -stdlib=libc++ generateWindows.cpp
 // ./a.out
@@ -16,7 +17,7 @@ const int NUM_CHROMOSOMES=23;
 const string convert_chr[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "X"};
 
 struct Base{
-  stack<int> sRead, eRead; //start read & end read
+  stack<string> sRead, eRead; //start read & end read
 };
 struct Chr{
   Chr(): bases(MAX_POSITION){}
@@ -28,7 +29,7 @@ Chr sequence[NUM_CHROMOSOMES]; //stores 'events' when a read starts/ends 0-index
 int windowLength;
 ofstream f;
 void initializeSequence(){
-  int readId=1, last_chr=-1;
+  int last_chr=-1;
   while(!cin.eof()){
     int start, chr, length;
     string C, L, read;
@@ -44,16 +45,26 @@ void initializeSequence(){
     assert(start+length<MAX_POSITION && "A sequence ends outside of MAX_POSITION range, adjust the constant in the code.");
     if(chr!=last_chr){
       sequence[chr].minPosition = start;
-      readId = 1;
       last_chr = chr;
       cout << "----Initializing chr" << convert_chr[chr] << endl;
     }
 
-    sequence[chr].bases[start].sRead.push_back(readId);
-    sequence[chr].bases[start+length].eRead.push_back(readId);
-    sequence[chr].maxPosition = start+length;
+    string mutations="";
+    for(int i=0; i<read.size(); i++){
+      if(read[i]=='=') 
+        continue;
+      mutations += "chr";
+      mutations += to_string(chr);
+      mutations += "-";
+      mutations += to_string(start+i);
+      mutations += "-";
+      mutations += read[i];
+      mutations += " ";
+    }
 
-    readId++;
+    sequence[chr].bases[start].sRead.push(mutations);
+    sequence[chr].bases[start+length].eRead.push(mutations);
+    sequence[chr].maxPosition = start+length;
   }
 }
 
