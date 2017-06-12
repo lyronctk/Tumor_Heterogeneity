@@ -26,7 +26,6 @@
 # ref_genome=/data/indexes/hg19.fa
 
 # echo 'processing bam file' $file
-# file_name=$(echo $file | cut -d '_' -f 2- | cut -d '.' -f 1)
 
 # echo 'limit to selector space'
 # samtools view -b -L $selector $file > $file_name.test.bam

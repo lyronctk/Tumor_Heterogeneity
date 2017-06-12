@@ -13,42 +13,44 @@ using namespace std;
 // clang++ -std=c++11 -stdlib=libc++ generateWindows.cpp
 // ./a.out
 
-const int MAX_POSITION=3*1e8 ;
-const int NUM_CHROMOSOMES=23;
+
+const int N_BASES=2*1e5; //max # bases per tile  //CONSTANT STILL NEEDS TO BE FIXED
+const int N_TILES=1*1e3; //max # tiles
+const int N_CHROMOSOMES=23;
 const string convert_chr[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "X"};
+
 
 struct Base{
   stack<string> sRead, eRead; //start read & end read
 };
 struct Chr{
-  Chr(): bases(MAX_POSITION){}
-  vector<Base> bases; //bases are 1-indexed
-  int minPosition, maxPosition;
+  Chr(): bases(N_TILES, vector<Base>(N_BASES)){} //stores 'events' when a read starts/ends
+  vector<vector<Base> > bases; //[tile#][base(1-indexed)]
 };
+struct Tile{
+  int chr, sTile, eTile;
+};  
 
-Chr sequence[NUM_CHROMOSOMES]; //stores 'events' when a read starts/ends 0-indexed
-int windowLength;
-ofstream f;
-void initializeSequence(){
-  int last_chr=-1;
-  while(!cin.eof()){
-    int start, chr, length;
+
+ofstream fOut;
+ifstream fSelector, fRows;
+
+Chr sequence[N_CHROMOSOMES]; //0-indexed
+int tiles[N_TILES], windowLength;
+
+
+void initializeSequence(int tilePos){
+  int start, chr, length;
     string C, L, read;
-    cin >> C >> start >> L >> read;
+    fRows >> C >> start >> L >> read;
     L.pop_back();
     length = stoi(L);
-    chr = C.back()=='X' ? 22 : ((int)(C.back()-'0'))-1;
 
     if(length<windowLength){
       cout << "-----Warning: Window length is greater than the length of a read --window defaulted to length of read (" << L << ")" << endl;
       windowLength = length;
     }
-    assert(start+length<MAX_POSITION && "A sequence ends outside of MAX_POSITION range, adjust the constant in the code.");
-    if(chr!=last_chr){
-      sequence[chr].minPosition = start;
-      last_chr = chr;
-      cout << "----Initializing chr" << convert_chr[chr] << endl;
-    }
+    assert(start+length<MAX_POSITION && "Total number of bases in reads exceeds N_BASES, change the constant in code to allocate more memory.");
 
     string mutations="";
     for(int i=0; i<read.size(); i++){
@@ -66,6 +68,19 @@ void initializeSequence(){
     sequence[chr].bases[start].sRead.push(mutations);
     sequence[chr].bases[start+length].eRead.push(mutations);
     sequence[chr].maxPosition = start+length;
+}
+
+
+void initializeTiles(){
+  int tilePos=0, prefixSum=0;
+  while(!fSelector.eof()){
+    int selectorChr, sTile, eTile; string selectorChrStr;
+    cin >> selectorChrStr >> sTile >> eTile;
+    selectorChr = selectorChrStr.back()=='X' ? 22 : ((int)(selectorChrStr.back()-'0'))-1;
+    tiles[tilePos] = {chr, sTile, eTile};
+
+    initializeSequence(tilePos);
+    tilePos++;
   }
 }
 
@@ -85,7 +100,7 @@ void generateWindows(){
 
   //  f << "chr" << convert_chr[i] << ":" << j << "-" << j+windowLength-1 << " " << depth << endl;
       for(map<string, int>::iterator it=mutations.begin(); it != mutations.end(); ++it)
-        f << it->second << " " << it->first << "chr" << convert_chr[i] << ":" << j << "-" << j+windowLength-1 << endl;
+        fOut << it->second << " " << it->first << "chr" << convert_chr[i] << ":" << j << "-" << j+windowLength-1 << endl;
 
       //delete read-end events from current map of mutations
       map<string, int>::iterator it;
@@ -102,18 +117,19 @@ void generateWindows(){
 }
 
 
-int main(){ // <mutatedrows> <windowlength>
-  string fileName;
-  cin >> fileName >> windowLength;
+int main(){ // <mutatedrows> <selector> <windowlength> <output>
+  string rows, selector, output;
+  cin >> fileName >> selector >> windowLength >> output;
 
-  freopen("testcase.txt", "r", stdin); //fileName.c_str()
-  f.open("windows.txt");  
+  fOut.open(output);  
+  fSelector.open(selector);
+  fRows.open(fileName);
 
   clock_t t;
   t = clock();
   cout << "------Generating..." << endl;
 
-  initializeSequence();
+  initializeTiles();
   generateWindows();
 
   cout << "----Done" << endl;
