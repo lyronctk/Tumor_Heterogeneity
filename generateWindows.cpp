@@ -1,4 +1,4 @@
-#include <cstdio>
+#include <cstdio> 
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -11,11 +11,11 @@
 using namespace std;
 // git add generateWindows.cpp filterMutatedRows.sh clonal_tumor_wrapper.sh
 // clang++ -std=c++11 -stdlib=libc++ generateWindows.cpp
-// ./a.out
+// echo "DLBCL021-Tumor.mutatedrows.txt selector.bed Sample_DLBCL021_Normal.singleindex-deduped.sorted.freq.paired.Q30.txt Sample_DLBCL021_Tumor.singleindex-deduped.sorted.freq.paired.Q30.txt 50 windows.txt" | ./a.out
 
 const int N_BASES=3*1e3; //max # bases per tile  
 const int N_TILES=3*1e3; //max # tiles
-
+const double MUTATION_DEPTH_THRESHOLD=0.01;
 
 struct Base{
   stack<string> sRead, eRead; //start read & end read
@@ -27,11 +27,43 @@ struct Tile{
 
 
 ofstream fOut;
-ifstream fSelector, fRows;
+ifstream fSelector, fRows, fNormal, fTumor;
 
+map<string, string> normalsAndErrors; //mutations that should be ignored during processTiles()
 Base bases[N_TILES][N_BASES];
 Tile tiles[N_TILES];
 int windowLength;
+
+
+bool aboveThreshold(int depth, int totalPairs){
+  if((double)totalPairs/(double)depth > MUTATION_DEPTH_THRESHOLD)
+    return true;
+  return false;
+}
+
+
+int normalPairs[8];
+void processNormalMutations(){
+  string filler;
+  fNormal >> filler >> filler >> filler >> filler >> filler >> filler >> filler >> filler >> filler >> filler >> filler >> filler >> filler >> filler;
+
+  while(!fNormal.eof()){
+    string chr;
+    int pos, depth;
+    fNormal >> chr >> pos >> depth >> filler >> filler >> filler >> normalPairs[0] >> normalPairs[1] >> normalPairs[2] >> normalPairs[3] >> normalPairs[4] >> normalPairs[5] >> normalPairs[6] >> normalPairs[7];
+    if(chr == "") continue; 
+
+    string mutations="";
+    if(aboveThreshold(depth, normalPairs[0]+normalPairs[1])) mutations += 'A';
+    if(aboveThreshold(depth, normalPairs[2]+normalPairs[3])) mutations += 'C';
+    if(aboveThreshold(depth, normalPairs[4]+normalPairs[5])) mutations += 'T';
+    if(aboveThreshold(depth, normalPairs[6]+normalPairs[7])) mutations += 'G';
+
+    string key = ""; key += chr; key += ":"; key += to_string(pos);
+    if(mutations != "")
+      normalsAndErrors[key] = mutations;
+  }
+}
 
 
 void processSequence(int tileNum){
@@ -52,10 +84,18 @@ void processSequence(int tileNum){
       windowLength = length;
     }
 
-    string mutations="";
+    string mutations="", key;
+    map<string, string>::iterator it;
     for(int i=0; i<read.size(); i++){
       if(read[i]=='=') 
         continue;  
+
+      key = ""; key += chr; key += ":"; key += to_string(start+i); 
+      it = normalsAndErrors.find(key);
+      if(it != normalsAndErrors.end())
+        if((it->second).find(read[i]) != string::npos)
+          continue;
+
       mutations += chr;
       mutations += "-";
       mutations += to_string(start+i);
@@ -64,25 +104,21 @@ void processSequence(int tileNum){
       mutations += " ";
     }
 
-    bases[tileNum][tilePosition].sRead.push(mutations);
-    bases[tileNum][tilePosition+length].eRead.push(mutations);
+    if(mutations != ""){
+      bases[tileNum][tilePosition].sRead.push(mutations);
+      bases[tileNum][tilePosition+length].eRead.push(mutations);
+    }
   }
 }
 
 
 int tileNum=0;
 void processTiles(){
-  string lastChr="";
   while(!fSelector.eof()){
     int sTile, eTile; string chr;
     fSelector >> chr >> sTile >> eTile;
     if(chr == "") continue; //blank line
     tiles[tileNum] = {chr, sTile, eTile};
-
-    if(lastChr != chr){
-      lastChr = chr;
-      cout << "----Processing " << chr << "..." << endl;
-    }
 
     assert(tileNum<N_TILES-5 && "Number of tiles exceeds N_TILES, change the constant in the code to allocate more memory.");
     assert(eTile-sTile<N_BASES && "Number of base pairs in a single tile exceeds N_BASES, change the constant in the code to allocate more memory.");
@@ -91,16 +127,34 @@ void processTiles(){
   }
 }
 
+int errorPairs[8];
+void processErrors(){
+  string filler;
+  fTumor >> filler >> filler >> filler >> filler >> filler >> filler >> filler >> filler >> filler >> filler >> filler >> filler >> filler >> filler;
 
-void createWindows(){
+  while(!fTumor.eof()){
+    string chr;
+    int pos, depth;
+    fTumor >> chr >> pos >> depth >> filler >> filler >> filler >> errorPairs[0] >> errorPairs[1] >> errorPairs[2] >> errorPairs[3] >> errorPairs[4] >> errorPairs[5] >> errorPairs[6] >> errorPairs[7];
+    if(chr == "") continue; 
+
+    string mutations="";
+    if(errorPairs[0]+errorPairs[1]==1) mutations += 'A';
+    if(errorPairs[2]+errorPairs[3]==1) mutations += 'C';
+    if(errorPairs[4]+errorPairs[5]==1) mutations += 'T';
+    if(errorPairs[6]+errorPairs[7]==1) mutations += 'G';
+
+    string key = ""; key += chr; key += ":"; key += to_string(pos);
+    if(mutations != "")
+      normalsAndErrors[key] = mutations;
+  }
+}
+
+
+void generateWindows(){
   map<string, int> mutations; //<mutations, count>
-  string lastChr = "";
   for(int i=0; i<tileNum; i++){
     Tile curTile = tiles[i];
-    if(curTile.chr != lastChr){
-      lastChr = curTile.chr;
-      cout << "----Generating windows in " << lastChr << "..." << endl;
-    }
     for(int j=0; j<=curTile.end-curTile.start-windowLength+1; j++){
       //add read-start events to current map of mutations
       pair<map<string, int>::iterator, bool> ret;
@@ -130,21 +184,28 @@ void createWindows(){
 }
 
 
-int main(){ // <mutatedrows> <selector> <windowlength> <output>
-  string rows, selector, output;
-  cin >> rows >> selector >> windowLength >> output;
+int main(){ // <mutatedrows> <selector> <normal> <tumor> <windowlength> <output>
+  string rows, selector, normal, tumor, output;
+  cin >> rows >> selector >> normal >> tumor >> windowLength >> output;
 
   fOut.open(output);  
   fSelector.open(selector);
   fRows.open(rows);
+  fNormal.open(normal);
+  fTumor.open(tumor);
 
   clock_t t;
   t = clock();
-  cout << "------Generating..." << endl;
+  cout << "------Program start..." << endl;
 
+  cout << "----Processing normal mutations..." << endl;
+  processNormalMutations();
+  cout << "----Processing errors..." << endl;
+  processErrors();
+  cout << "----Processing and filtering reads..." << endl;
   processTiles();
-  cout << " *" << endl;
-  createWindows();
+  cout << "----Generating windows..." << endl;
+  generateWindows();
 
   cout << "----Done" << endl;
   cout << "------Executed in " << ((float)(clock()-t))/CLOCKS_PER_SEC << " seconds." << endl;
@@ -152,5 +213,7 @@ int main(){ // <mutatedrows> <selector> <windowlength> <output>
   fOut.close();
   fSelector.close();
   fRows.close();
+  fNormal.close();
+  fTumor.close();
   return 0;
 }

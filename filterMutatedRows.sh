@@ -42,4 +42,4 @@
 # awk -v dummy="$dummy" '$4!=dummy' $file_name.refremoved.txt > $file_name.mutatedrows.txt 
 
 clang++ -std=c++11 -stdlib=libc++ generateWindows.cpp
-echo "DLBCL021-Tumor.mutatedrows.txt selector.bed 50 windows.txt" | ./a.out
+echo "DLBCL021-Tumor.mutatedrows.txt selector.bed Sample_DLBCL021_Normal.singleindex-deduped.sorted.freq.paired.Q30.txt Sample_DLBCL021_Tumor.singleindex-deduped.sorted.freq.paired.Q30.txt 50 windows.txt" | ./a.out
