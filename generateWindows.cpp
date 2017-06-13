@@ -11,14 +11,16 @@
 using namespace std;
 // git add generateWindows.cpp filterMutatedRows.sh clonal_tumor_wrapper.sh
 // clang++ -std=c++11 -stdlib=libc++ generateWindows.cpp
-// echo "DLBCL021-Tumor.mutatedrows.txt selector.bed Sample_DLBCL021_Normal.singleindex-deduped.sorted.freq.paired.Q30.txt Sample_DLBCL021_Tumor.singleindex-deduped.sorted.freq.paired.Q30.txt 50 windows.txt" | ./a.out
+// echo "DLBCL021-Tumor.mutatedrows.txt selector.bed Sample_DLBCL021_Normal.singleindex-deduped.sorted.freq.paired.Q30.txt Sample_DLBCL021_Tumor.singleindex-deduped.sorted.freq.paired.Q30.txt DLBCL021-Tumor.depth.txt 50 windows.txt" | ./a.out
 
 const int N_BASES=3*1e3; //max # bases per tile  
 const int N_TILES=3*1e3; //max # tiles
 const double MUTATION_DEPTH_THRESHOLD=0.01;
 
+
 struct Base{
   stack<string> sRead, eRead; //start read & end read
+  int sDepth=0, eDepth=0;
 };
 struct Tile{
   string chr;
@@ -27,12 +29,12 @@ struct Tile{
 
 
 ofstream fOut;
-ifstream fSelector, fRows, fNormal, fTumor;
+ifstream fSelector, fRows, fNormal, fTumor, fDepths;
 
 map<string, string> normalsAndErrors; //mutations that should be ignored during processTiles()
 Base bases[N_TILES][N_BASES];
 Tile tiles[N_TILES];
-int windowLength;
+int windowLength, readLength=-1;
 
 
 bool aboveThreshold(int depth, int totalPairs){
@@ -66,17 +68,36 @@ void processNormalMutations(){
 }
 
 
+void calculateDepths(int tileNum){
+  while(!fDepths.eof()){
+    int start, length; string chr, L;
+    fDepths >> chr >> start >> L;
+    if(L=="") continue;
+    L.pop_back(); length = stoi(L);
+
+    if(chr != tiles[tileNum].chr || start>tiles[tileNum].end) //this means first read of next tile was just processed
+      break;
+    int tilePosition = start+length-tiles[tileNum].start-windowLength+1;;
+    if(tilePosition<0 || start+length-1>tiles[tileNum].end) //read not completely in tile
+      continue;
+
+    bases[tileNum][tilePosition].sDepth++;
+    bases[tileNum][tilePosition+length].eDepth++;
+  }
+}
+
+
 void processSequence(int tileNum){
   while(!fRows.eof()){
     int start, length; string chr, L, read;
     fRows >> chr >> start >> L >> read;
     if(read == "") continue; //blank line
-    L.pop_back();
-    length = stoi(L);
+    L.pop_back(); length = stoi(L);
+    readLength = length;
 
     if(chr != tiles[tileNum].chr || start>tiles[tileNum].end) //this means first read of next tile was just processed
       break;
-    int tilePosition = start-tiles[tileNum].start;
+    int tilePosition = start+length-tiles[tileNum].start-windowLength+1;
     if(tilePosition<0 || start+length-1>tiles[tileNum].end) //read not completely in tile
       continue;
     if(windowLength>length){
@@ -101,7 +122,7 @@ void processSequence(int tileNum){
       mutations += to_string(start+i);
       mutations += "-";
       mutations += read[i];
-      mutations += " ";
+      mutations += "\t";
     }
 
     if(mutations != ""){
@@ -123,6 +144,7 @@ void processTiles(){
     assert(tileNum<N_TILES-5 && "Number of tiles exceeds N_TILES, change the constant in the code to allocate more memory.");
     assert(eTile-sTile<N_BASES && "Number of base pairs in a single tile exceeds N_BASES, change the constant in the code to allocate more memory.");
     processSequence(tileNum);
+    calculateDepths(tileNum);
     tileNum++;
   }
 }
@@ -151,11 +173,27 @@ void processErrors(){
 }
 
 
+int convertMutationToPosition(string mutation){
+  string pos = "";
+  bool dashFound = false;
+  for(char c : mutation){
+    if(c == '-' && dashFound)
+      break;
+    if(dashFound)
+      pos += c;
+    if(c == '-')
+      dashFound = true;
+  }
+  return stoi(pos);
+}
+
+
 void generateWindows(){
   map<string, int> mutations; //<mutations, count>
+  int depthCtr=0;
   for(int i=0; i<tileNum; i++){
     Tile curTile = tiles[i];
-    for(int j=0; j<=curTile.end-curTile.start-windowLength+1; j++){
+    for(int j=0; j<=curTile.end-curTile.start-windowLength+1+readLength*2; j++){
       //add read-start events to current map of mutations
       pair<map<string, int>::iterator, bool> ret;
       while(!bases[i][j].sRead.empty()){
@@ -164,10 +202,33 @@ void generateWindows(){
         if(ret.second == false) //same set of mutations already occured, increases count
           (ret.first->second)++;
       }
+      depthCtr += bases[i][j].sDepth;
 
-      //fOut << chr << ":" << j << "-" << j+windowLength-1 << " " << depth << endl;
-      for(map<string, int>::iterator it=mutations.begin(); it != mutations.end(); ++it)
-        fOut << it->second << " " << it->first << curTile.chr << ":" << j+curTile.start << "-" << j+curTile.start+windowLength-1 << endl;
+      int windowStart = j-readLength+curTile.start+windowLength-1;
+      int windowEnd = windowStart+windowLength-1;
+
+      if(windowStart < curTile.start || windowEnd > curTile.end){
+        map<string, int> dedupedOutput;
+        for(map<string, int>::iterator it=mutations.begin(); it != mutations.end(); ++it){
+          string mutationsInRange = "", currentMutation;
+          istringstream totalMutations(it->first);
+          while(totalMutations >> currentMutation){
+            int mutationPosition = convertMutationToPosition(currentMutation);
+            if(mutationPosition >= windowStart && mutationPosition <= windowEnd){
+              mutationsInRange += currentMutation;
+              mutationsInRange += "\t";
+            }
+          }
+          if(mutationsInRange != ""){
+            ret = dedupedOutput.emplace(mutationsInRange, 1);
+            if(ret.second == false)
+              (ret.first->second)++;
+          }
+        }
+
+        for(map<string, int>::iterator it=dedupedOutput.begin(); it != dedupedOutput.end(); ++it)
+          fOut << "\t" << it->second << "\t" << it->first << curTile.chr << ":" << windowStart << "-" << windowEnd << "\t" << depthCtr << endl;
+      }
 
       //delete read-end events from current map of mutations
       map<string, int>::iterator it;
@@ -179,24 +240,27 @@ void generateWindows(){
         else
           mutations.erase(it);
       }
+      depthCtr -= bases[i][j+windowLength].eDepth;
+      
     }
-  }
+  } 
 }
 
 
-int main(){ // <mutatedrows> <selector> <normal> <tumor> <windowlength> <output>
-  string rows, selector, normal, tumor, output;
-  cin >> rows >> selector >> normal >> tumor >> windowLength >> output;
+int main(){ // <mutatedrows> <selector> <normal> <tumor> <depth> <windowlength> <output>
+  string rows, selector, normal, tumor, depth, output;
+  cin >> rows >> selector >> normal >> tumor >> depth >> windowLength >> output;
 
   fOut.open(output);  
   fSelector.open(selector);
   fRows.open(rows);
   fNormal.open(normal);
   fTumor.open(tumor);
+  fDepths.open(depth);
 
   clock_t t;
   t = clock();
-  cout << "------Program start..." << endl;
+  cout << "------Program start (generateWindows)..." << endl;
 
   cout << "----Processing normal mutations..." << endl;
   processNormalMutations();
@@ -215,5 +279,6 @@ int main(){ // <mutatedrows> <selector> <normal> <tumor> <windowlength> <output>
   fRows.close();
   fNormal.close();
   fTumor.close();
+  fDepths.close();
   return 0;
 }
