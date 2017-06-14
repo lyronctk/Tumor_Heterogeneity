@@ -70,15 +70,18 @@ void processNormalMutations(){
 
 void calculateDepths(int tileNum){
   while(!fDepths.eof()){
+    streampos temp = fDepths.tellg();
     int start, length; string chr, L;
     fDepths >> chr >> start >> L;
     if(L=="") continue;
     L.pop_back(); length = stoi(L);
 
-    if(chr != tiles[tileNum].chr || start>tiles[tileNum].end) //this means first read of next tile was just processed
+    if(chr != tiles[tileNum].chr || start>tiles[tileNum].end){ //this means first read of next tile was just processed
+      fDepths.seekg(temp);
       break;
+    }
     int tilePosition = start+length-tiles[tileNum].start-windowLength+1;;
-    if(tilePosition<0 || start+length-1>tiles[tileNum].end) //read not completely in tile
+    if(tilePosition<0) //read will not completely cover any window inside the tile
       continue;
 
     bases[tileNum][tilePosition].sDepth++;
@@ -89,16 +92,19 @@ void calculateDepths(int tileNum){
 
 void processSequence(int tileNum){
   while(!fRows.eof()){
+    streampos temp = fRows.tellg();
     int start, length; string chr, L, read;
     fRows >> chr >> start >> L >> read;
     if(read == "") continue; //blank line
     L.pop_back(); length = stoi(L);
     readLength = length;
 
-    if(chr != tiles[tileNum].chr || start>tiles[tileNum].end) //this means first read of next tile was just processed
+    if(chr != tiles[tileNum].chr || start>tiles[tileNum].end){ //this means first read of next tile was just processed
+      fRows.seekg(temp);
       break;
+    }
     int tilePosition = start+length-tiles[tileNum].start-windowLength+1;
-    if(tilePosition<0 || start+length-1>tiles[tileNum].end) //read not completely in tile
+    if(tilePosition<0) //read will not completely cover any window inside the tile
       continue;
     if(windowLength>length){
       cout << "-----Warning: Window length is greater than the length of a read --window defaulted to length of read (" << L << ")" << endl;
@@ -226,6 +232,7 @@ void generateWindows(){
           }
         }
 
+        //added to different map because an 'event' that is cut off by the window could match another shorter 'event', thus creating two separate but identical 'events'
         for(map<string, int>::iterator it=dedupedOutput.begin(); it != dedupedOutput.end(); ++it)
           fOut << "\t" << it->second << "\t" << it->first << curTile.chr << ":" << windowStart << "-" << windowEnd << "\t" << depthCtr << endl;
       }
@@ -273,6 +280,19 @@ int main(){ // <mutatedrows> <selector> <normal> <tumor> <depth> <windowlength> 
 
   cout << "----Done" << endl;
   cout << "------Executed in " << ((float)(clock()-t))/CLOCKS_PER_SEC << " seconds." << endl;
+
+  // int start = 2491377;
+  // int length = 101;
+  // int tileNum=5;
+  // int windowLength = 50;
+  // int tilePosition = start+length-tiles[tileNum].start-windowLength+1;
+  // Base b = bases[5][tilePosition];
+
+  // cout << "----" << endl;
+  // while(!b.sRead.empty()){
+  //   cout << b.sRead.top() << endl;
+  //   b.sRead.pop();
+  // }
 
   fOut.close();
   fSelector.close();
