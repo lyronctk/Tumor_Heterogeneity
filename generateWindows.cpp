@@ -11,7 +11,7 @@
 using namespace std;
 // git add generateWindows.cpp filterMutatedRows.sh clonal_tumor_wrapper.sh
 // clang++ -std=c++11 -stdlib=libc++ generateWindows.cpp
-// echo "DLBCL021-Tumor.mutatedrows.txt selector.bed Sample_DLBCL021_Normal.singleindex-deduped.sorted.freq.paired.Q30.txt Sample_DLBCL021_Tumor.singleindex-deduped.sorted.freq.paired.Q30.txt DLBCL021-Tumor.depth.txt 50 windows.txt" | ./a.out
+// echo "DLBCL021-Tumor.mutatedrows.txt selector.bed Sample_DLBCL021_Normal.singleindex-deduped.sorted.freq.paired.Q30.txt Sample_DLBCL021_Tumor.singleindex-deduped.sorted.freq.paired.Q30.txt DLBCL021-Tumor.depth.txt 50 2 windows.txt" | ./a.out
 
 const int N_BASES=3*1e3; //max # bases per tile  
 const int N_TILES=3*1e3; //max # tiles
@@ -194,11 +194,12 @@ int convertMutationToPosition(string mutation){
 }
 
 
-void generateWindows(){
+void generateWindows(int slide){
   map<string, int> mutations; //<mutations, count>
-  int depthCtr=0;
+  int depthCtr=0, slideCtr;
   for(int i=0; i<tileNum; i++){
     Tile curTile = tiles[i];
+    slideCtr = -1;
     for(int j=0; j<=curTile.end-curTile.start-windowLength+1+readLength*2; j++){
       map<string, int> dedupedOutput;
       //add read-start events to current map of mutations
@@ -215,26 +216,29 @@ void generateWindows(){
       int windowEnd = windowStart+windowLength-1;
 
       if(windowStart >= curTile.start && windowEnd <= curTile.end){
-        for(map<string, int>::iterator it=mutations.begin(); it != mutations.end(); ++it){
-          string mutationsInRange = "", currentMutation;
-          istringstream totalMutations(it->first);
-          while(totalMutations >> currentMutation){
-            int mutationPosition = convertMutationToPosition(currentMutation);
-            if(mutationPosition >= windowStart && mutationPosition <= windowEnd){
-              mutationsInRange += currentMutation;
-              mutationsInRange += "\t";
+        slideCtr++;
+        if(slideCtr%slide == 0){
+          for(map<string, int>::iterator it=mutations.begin(); it != mutations.end(); ++it){
+            string mutationsInRange = "", currentMutation;
+            istringstream totalMutations(it->first);
+            while(totalMutations >> currentMutation){
+              int mutationPosition = convertMutationToPosition(currentMutation);
+              if(mutationPosition >= windowStart && mutationPosition <= windowEnd){
+                mutationsInRange += currentMutation;
+                mutationsInRange += "\t";
+              }
+            }
+            if(mutationsInRange != ""){
+              ret = dedupedOutput.emplace(mutationsInRange, it->second);
+              if(ret.second == false)
+                ret.first->second += it->second;
             }
           }
-          if(mutationsInRange != ""){
-            ret = dedupedOutput.emplace(mutationsInRange, it->second);
-            if(ret.second == false)
-              ret.first->second += it->second;
-          }
-        }
 
-        //added to different map because an 'event' that is cut off by the window could match another shorter 'event', thus creating two separate but identical 'events'
-        for(map<string, int>::iterator it=dedupedOutput.begin(); it != dedupedOutput.end(); ++it)
-          fOut << "\t" << it->second << "\t" << it->first << curTile.chr << ":" << windowStart << "-" << windowEnd << "\t" << depthCtr << endl;
+          //added to different map because an 'event' that is cut off by the window could match another shorter 'event', thus creating two separate but identical 'events'
+          for(map<string, int>::iterator it=dedupedOutput.begin(); it != dedupedOutput.end(); ++it)
+            fOut << "\t" << it->second << "\t" << it->first << curTile.chr << ":" << windowStart << "-" << windowEnd << "\t" << depthCtr << endl;
+        }
       }
 
       //delete read-end events from current map of mutations
@@ -254,9 +258,10 @@ void generateWindows(){
 }
 
 
-int main(){ // <mutatedrows> <selector> <normal> <tumor> <depth> <windowlength> <output>
+int main(){ // <mutatedrows> <selector> <normal> <tumor> <depth> <windowLength> <windowSlide> <output>
+  int slide;
   string rows, selector, normal, tumor, depth, output;
-  cin >> rows >> selector >> normal >> tumor >> depth >> windowLength >> output;
+  cin >> rows >> selector >> normal >> tumor >> depth >> windowLength >> slide >> output;
 
   fOut.open(output);  
   fSelector.open(selector);
@@ -276,23 +281,10 @@ int main(){ // <mutatedrows> <selector> <normal> <tumor> <depth> <windowlength> 
   cout << "----Processing and filtering reads..." << endl;
   processTiles();
   cout << "----Generating windows..." << endl;
-  generateWindows();
+  generateWindows(slide);
 
   cout << "----Done" << endl;
   cout << "------Executed in " << ((float)(clock()-t))/CLOCKS_PER_SEC << " seconds." << endl;
-
-  // int start = 2491377;
-  // int length = 101;
-  // int tileNum=5;
-  // int windowLength = 50;
-  // int tilePosition = start+length-tiles[tileNum].start-windowLength+1;
-  // Base b = bases[5][tilePosition];
-
-  // cout << "----" << endl;
-  // while(!b.sRead.empty()){
-  //   cout << b.sRead.top() << endl;
-  //   b.sRead.pop();
-  // }
 
   fOut.close();
   fSelector.close();
