@@ -41,5 +41,7 @@ length=${length_raw%?}
 dummy=$(head -c $length < /dev/zero | tr '\0' '\141' | sed -e 's,a,=,g')
 awk -v dummy="$dummy" '$4!=dummy' $file_name.refremoved.txt > $file_name.mutatedrows.txt 
 
+# cut -f13-14 Sample_DLBCL021_Tumor.singleindex-deduped.sorted.freq.paired.Q30.rmbg.filtered.snvs.annotated.cosmic.split.txt | tail -n +2 > DLBCL021_Tumor_summarized.cosmic.split.txt
+
 clang++ -std=c++11 -stdlib=libc++ generateWindows.cpp
 echo "DLBCL021-Tumor.mutatedrows.txt selector.bed Sample_DLBCL021_Normal.singleindex-deduped.sorted.freq.paired.Q30.txt Sample_DLBCL021_Tumor.singleindex-deduped.sorted.freq.paired.Q30.txt 50 windowcounts.txt" | ./a.out

@@ -1,26 +1,26 @@
-#include <cstdio> 
 #include <iostream>
 #include <fstream>
 #include <sstream>
-#include <string>
 #include <assert.h>
 #include <time.h>
+#include <vector>
+#include <string>
 #include <stack>
 #include <map>
-#include <vector>
 using namespace std;
 // git add generateWindows.cpp filterMutatedRows.sh clonal_tumor_wrapper.sh
 // clang++ -std=c++11 -stdlib=libc++ generateWindows.cpp
-// echo "DLBCL021-Tumor.mutatedrows.txt selector.bed Sample_DLBCL021_Normal.singleindex-deduped.sorted.freq.paired.Q30.txt Sample_DLBCL021_Tumor.singleindex-deduped.sorted.freq.paired.Q30.txt DLBCL021-Tumor.depth.txt 50 2 windows.txt" | ./a.out
+// echo "DLBCL021-Tumor.mutatedrows.txt selector.bed Sample_DLBCL021_Normal.singleindex-deduped.sorted.freq.paired.Q30.txt Sample_DLBCL021_Tumor.singleindex-deduped.sorted.freq.paired.Q30.txt DLBCL021-Tumor.depth.txt DLBCL021_Tumor_summarized.cosmic.split.txt 50 2 windows.txt" | ./a.out
 
 const int N_BASES=3*1e3; //max # bases per tile  
 const int N_TILES=3*1e3; //max # tiles
+const int N_COSMIC=3;
 const double MUTATION_DEPTH_THRESHOLD=0.01;
 
 
 struct Base{
-  stack<string> sRead, eRead; //start read & end read
-  int sDepth=0, eDepth=0;
+  stack<string> sRead, eRead; //start and end of deduped tumor reads 
+  int sDepth=0, eDepth=0; //start and end of non-deduped tumor reads
 };
 struct Tile{
   string chr;
@@ -29,12 +29,46 @@ struct Tile{
 
 
 ofstream fOut;
-ifstream fSelector, fRows, fNormal, fTumor, fDepths;
+ifstream fSelector, fRows, fNormal, fTumor, fDepths, fCosmic;
 
 map<string, string> normalsAndErrors; //mutations that should be ignored during processTiles()
 Base bases[N_TILES][N_BASES];
 Tile tiles[N_TILES];
 int windowLength, readLength=-1;
+
+
+pair<int, int> allelePercentages[N_COSMIC];
+double AP=0;
+void processCosmicSplit(){
+  int numLines=0;
+  while(!fCosmic.eof()){
+    int depth; string percentStr;
+    fCosmic >> depth >> percentStr;
+    if(percentStr == "") continue;
+    int percent = stoi(percentStr.substr(0, 4));
+
+    if(depth < 200)
+      continue;
+    if(numLines < N_COSMIC){
+      allelePercentages[numLines].first = depth; 
+      allelePercentages[numLines].second = percent;
+    }
+    numLines++;
+  }
+  if(numLines < N_COSMIC)
+    cout << "--WARNING: There are less than " << N_COSMIC << " usable depth/AF pairs in the cosmic split file. The program will use the average AF of the " << numLines << " pairs."; 
+
+  int nTop = min(N_COSMIC, (int)(0.05*numLines+0.5));
+  if(nTop == 0)
+    return;
+  if(allelePercentages[0].second - allelePercentages[nTop-1].second > 10)
+    cout << "--WARNING: The difference between the highest allele percentage and the lowest that are being averaged is greater than 10%";
+
+  for(int i=0; i<nTop; i++)
+    AP += allelePercentages[i].second;
+  AP /= nTop;
+  AP /= 100;
+}
 
 
 bool aboveThreshold(int depth, int totalPairs){
@@ -107,7 +141,7 @@ void processSequence(int tileNum){
     if(tilePosition<0) //read will not completely cover any window inside the tile
       continue;
     if(windowLength>length){
-      cout << "-----Warning: Window length is greater than the length of a read --window defaulted to length of read (" << L << ")" << endl;
+      cout << "--WARNING: Window length is greater than the length of a read --window defaulted to length of read (" << L << ")" << '\n';
       windowLength = length;
     }
 
@@ -147,8 +181,8 @@ void processTiles(){
     if(chr == "") continue; //blank line
     tiles[tileNum] = {chr, sTile, eTile};
 
-    assert(tileNum<N_TILES-5 && "Number of tiles exceeds N_TILES, change the constant in the code to allocate more memory.");
-    assert(eTile-sTile<N_BASES && "Number of base pairs in a single tile exceeds N_BASES, change the constant in the code to allocate more memory.");
+    assert(tileNum<N_TILES-5 && "--Number of tiles exceeds N_TILES, change the constant in the code to allocate more memory.");
+    assert(eTile-sTile<N_BASES && "--Number of base pairs in a single tile exceeds N_BASES, change the constant in the code to allocate more memory.");
     processSequence(tileNum);
     calculateDepths(tileNum);
     tileNum++;
@@ -217,7 +251,7 @@ void generateWindows(int slide){
 
       if(windowStart >= curTile.start && windowEnd <= curTile.end){
         slideCtr++;
-        if(slideCtr%slide == 0){
+        if(slideCtr%slide == 0){ //how much to shift sliding window every print 
           for(map<string, int>::iterator it=mutations.begin(); it != mutations.end(); ++it){
             string mutationsInRange = "", currentMutation;
             istringstream totalMutations(it->first);
@@ -237,7 +271,7 @@ void generateWindows(int slide){
 
           //added to different map because an 'event' that is cut off by the window could match another shorter 'event', thus creating two separate but identical 'events'
           for(map<string, int>::iterator it=dedupedOutput.begin(); it != dedupedOutput.end(); ++it)
-            fOut << "\t" << it->second << "\t" << it->first << curTile.chr << ":" << windowStart << "-" << windowEnd << "\t" << depthCtr << endl;
+            fOut << "\t" << it->second << "\t" << it->first << curTile.chr << ":" << windowStart << "-" << windowEnd << "\t" << depthCtr << '\n';
         }
       }
 
@@ -251,17 +285,18 @@ void generateWindows(int slide){
         else
           mutations.erase(it);
       }
-      depthCtr -= bases[i][j+windowLength].eDepth;
-      
+      depthCtr -= bases[i][j+windowLength].eDepth;   
     }
   } 
 }
 
 
-int main(){ // <mutatedrows> <selector> <normal> <tumor> <depth> <windowLength> <windowSlide> <output>
+int main(){ // <mutatedrows> <selector> <normal> <tumor> <depth> <cosmic> <windowLength> <windowSlide> <output>
+  std::ios::sync_with_stdio(false); cin.tie(NULL);
+
   int slide;
-  string rows, selector, normal, tumor, depth, output;
-  cin >> rows >> selector >> normal >> tumor >> depth >> windowLength >> slide >> output;
+  string rows, selector, normal, tumor, depth, output, cosmic;
+  cin >> rows >> selector >> normal >> tumor >> depth >> cosmic >> windowLength >> slide >> output;
 
   fOut.open(output);  
   fSelector.open(selector);
@@ -269,22 +304,25 @@ int main(){ // <mutatedrows> <selector> <normal> <tumor> <depth> <windowLength> 
   fNormal.open(normal);
   fTumor.open(tumor);
   fDepths.open(depth);
+  fCosmic.open(cosmic);
 
   clock_t t;
   t = clock();
-  cout << "------Program start (generateWindows)..." << endl;
+  cout << "------Program start (generateWindows)..." << '\n';
 
-  cout << "----Processing normal mutations..." << endl;
+  cout << "----Processing cosmic split file..." << "\n";
+  processCosmicSplit();
+  cout << "----Processing normal mutations..." << '\n';
   processNormalMutations();
-  cout << "----Processing errors..." << endl;
+  cout << "----Processing errors..." << '\n';
   processErrors();
-  cout << "----Processing and filtering reads..." << endl;
+  cout << "----Processing and filtering reads..." << '\n';
   processTiles();
-  cout << "----Generating windows..." << endl;
+  cout << "----Generating windows..." << '\n';
   generateWindows(slide);
 
-  cout << "----Done" << endl;
-  cout << "------Executed in " << ((float)(clock()-t))/CLOCKS_PER_SEC << " seconds." << endl;
+  cout << "----Done" << '\n';
+  cout << "------Executed in " << ((float)(clock()-t))/CLOCKS_PER_SEC << " seconds." << '\n';
 
   fOut.close();
   fSelector.close();
@@ -292,5 +330,6 @@ int main(){ // <mutatedrows> <selector> <normal> <tumor> <depth> <windowLength> 
   fNormal.close();
   fTumor.close();
   fDepths.close();
+  fCosmic.close();
   return 0;
 }
