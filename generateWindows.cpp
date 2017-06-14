@@ -220,9 +220,9 @@ void generateWindows(){
             }
           }
           if(mutationsInRange != ""){
-            ret = dedupedOutput.emplace(mutationsInRange, 1);
+            ret = dedupedOutput.emplace(mutationsInRange, it->second);
             if(ret.second == false)
-              (ret.first->second)++;
+              ret.first->second += it->second;
           }
         }
 
