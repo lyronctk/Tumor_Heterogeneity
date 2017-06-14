@@ -194,6 +194,7 @@ void generateWindows(){
   for(int i=0; i<tileNum; i++){
     Tile curTile = tiles[i];
     for(int j=0; j<=curTile.end-curTile.start-windowLength+1+readLength*2; j++){
+      map<string, int> dedupedOutput;
       //add read-start events to current map of mutations
       pair<map<string, int>::iterator, bool> ret;
       while(!bases[i][j].sRead.empty()){
@@ -207,8 +208,7 @@ void generateWindows(){
       int windowStart = j-readLength+curTile.start+windowLength-1;
       int windowEnd = windowStart+windowLength-1;
 
-      if(windowStart < curTile.start || windowEnd > curTile.end){
-        map<string, int> dedupedOutput;
+      if(windowStart >= curTile.start && windowEnd <= curTile.end){
         for(map<string, int>::iterator it=mutations.begin(); it != mutations.end(); ++it){
           string mutationsInRange = "", currentMutation;
           istringstream totalMutations(it->first);
