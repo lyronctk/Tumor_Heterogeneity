@@ -14,7 +14,7 @@ ls *cosmic* > cosmicfiles.txt
 ls *Tumor*freq.paired.Q30.txt > freqfiles.txt 
 
 #2. create windows for selector
-echo '----Creating windows for selector'
+echo '----Creating windows for selector...'
 while read -r a b c
 do
         window_end=$((c-window_size+1))
@@ -23,6 +23,7 @@ do
                 echo $a $n  >> windows.txt
         done
 done < $selector
-echo '----Done creating windows'
 
 parallel --jobs 8 --xapply sh filterMutatedRows.sh bamfiles.txt :::: normfiles.txt :::: freqfiles.txt :::: cosmicfiles.txt ::: $selector ::: $window_size ::: $window_slide
+
+rm bamfiles.txt normfiles.txt cosmicfiles.txt freqfiles.txt windows.txt
