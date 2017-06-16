@@ -18,9 +18,9 @@ const int N_COSMIC=3;
 const double MUTATION_DEPTH_THRESHOLD=0.01;
 
 
-struct Base{
-  stack<string> sRead, eRead; //start and end of deduped tumor reads 
-  int sDepth=0, eDepth=0; //start and end of non-deduped tumor reads
+struct Base{ 
+  stack<string> sRead, eRead; // reads with mutations only
+  int sDepth=0, eDepth=0; // all reads
 };
 struct Tile{
   string chr;
@@ -32,7 +32,7 @@ ofstream fOut;
 ifstream fSelector, fRows, fNormal, fTumor, fDepths, fCosmic;
 
 map<string, string> normalsAndErrors; //mutations that should be ignored during processTiles()
-Base bases[N_TILES][N_BASES];
+Base bases[N_TILES][N_BASES]; //stores information about a read's mutations at its start-end points for efficiency
 Tile tiles[N_TILES];
 int windowLength, readLength=-1;
 
@@ -269,9 +269,17 @@ void generateWindows(int slide){
             }
           }
 
+          int totalMutatedReads=0;
           //added to different map because an 'event' that is cut off by the window could match another shorter 'event', thus creating two separate but identical 'events'
-          for(map<string, int>::iterator it=dedupedOutput.begin(); it != dedupedOutput.end(); ++it)
+          for(map<string, int>::iterator it=dedupedOutput.begin(); it != dedupedOutput.end(); ++it){
+            totalMutatedReads += it->second;
             fOut << "\t" << it->second << "\t" << it->first << curTile.chr << ":" << windowStart << "-" << windowEnd << "\t" << depthCtr << '\n';
+          }
+
+          int totalTumorReads = depthCtr * AP;
+          int tumorNoMutations = totalTumorReads-totalMutatedReads;
+          if(tumorNoMutations > 0)
+            fOut << "\t" << tumorNoMutations << "\t---normal---\t" << curTile.chr << ":" << windowStart << "-" << windowEnd << "\t" << depthCtr << '\n';
         }
       }
 
@@ -306,9 +314,9 @@ int main(){ // <mutatedrows> <selector> <normal> <tumor> <depth> <cosmic> <windo
   fDepths.open(depth);
   fCosmic.open(cosmic);
 
-  clock_t t;
-  t = clock();
-  cout << "------Program start (generateWindows)..." << '\n';
+  // clock_t t;
+  // t = clock();
+  cout << "----------------" << '\n';
 
   cout << "----Processing cosmic split file..." << "\n";
   processCosmicSplit();
@@ -321,8 +329,8 @@ int main(){ // <mutatedrows> <selector> <normal> <tumor> <depth> <cosmic> <windo
   cout << "----Generating windows..." << '\n';
   generateWindows(slide);
 
-  cout << "----Done" << '\n';
-  cout << "------Executed in " << ((float)(clock()-t))/CLOCKS_PER_SEC << " seconds." << '\n';
+  // cout << "----Done" << '\n';
+  // cout << "------Executed in " << ((float)(clock()-t))/CLOCKS_PER_SEC << " seconds." << '\n';
 
   fOut.close();
   fSelector.close();
